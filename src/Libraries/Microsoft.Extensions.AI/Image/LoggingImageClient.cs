@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -13,21 +14,21 @@ using Microsoft.Shared.Diagnostics;
 
 namespace Microsoft.Extensions.AI;
 
-/// <summary>A delegating text to image client that logs text to image operations to an <see cref="ILogger"/>.</summary>
+/// <summary>A delegating image client that logs image operations to an <see cref="ILogger"/>.</summary>
 /// <remarks>
 /// <para>
-/// The provided implementation of <see cref="ITextToImageClient"/> is thread-safe for concurrent use so long as the
+/// The provided implementation of <see cref="IImageClient"/> is thread-safe for concurrent use so long as the
 /// <see cref="ILogger"/> employed is also thread-safe for concurrent use.
 /// </para>
 /// <para>
 /// When the employed <see cref="ILogger"/> enables <see cref="Logging.LogLevel.Trace"/>, the contents of
-/// prompts and options are logged. These prompts and options may contain sensitive application data.
+/// requests and options are logged. These requests and options may contain sensitive application data.
 /// <see cref="Logging.LogLevel.Trace"/> is disabled by default and should never be enabled in a production environment.
-/// Prompts and options are not logged at other logging levels.
+/// Requests and options are not logged at other logging levels.
 /// </para>
 /// </remarks>
 [Experimental("MEAI001")]
-public partial class LoggingTextToImageClient : DelegatingTextToImageClient
+public partial class LoggingImageClient : DelegatingImageClient
 {
     /// <summary>An <see cref="ILogger"/> instance used for all logging.</summary>
     private readonly ILogger _logger;
@@ -35,11 +36,11 @@ public partial class LoggingTextToImageClient : DelegatingTextToImageClient
     /// <summary>The <see cref="JsonSerializerOptions"/> to use for serialization of state written to the logger.</summary>
     private JsonSerializerOptions _jsonSerializerOptions;
 
-    /// <summary>Initializes a new instance of the <see cref="LoggingTextToImageClient"/> class.</summary>
-    /// <param name="innerClient">The underlying <see cref="ITextToImageClient"/>.</param>
+    /// <summary>Initializes a new instance of the <see cref="LoggingImageClient"/> class.</summary>
+    /// <param name="innerClient">The underlying <see cref="IImageClient"/>.</param>
     /// <param name="logger">An <see cref="ILogger"/> instance that will be used for all logging.</param>
     /// <exception cref="ArgumentNullException"><paramref name="innerClient"/> or <paramref name="logger"/> is <see langword="null"/>.</exception>
-    public LoggingTextToImageClient(ITextToImageClient innerClient, ILogger logger)
+    public LoggingImageClient(IImageClient innerClient, ILogger logger)
         : base(innerClient)
     {
         _logger = Throw.IfNull(logger);
@@ -55,14 +56,14 @@ public partial class LoggingTextToImageClient : DelegatingTextToImageClient
     }
 
     /// <inheritdoc/>
-    public override async Task<TextToImageResponse> GenerateImagesAsync(
-        string prompt, TextToImageOptions? options = null, CancellationToken cancellationToken = default)
+    public override async Task<ImageResponse> GenerateImagesAsync(
+        ImageRequest request, ImageOptions? options = null, CancellationToken cancellationToken = default)
     {
         if (_logger.IsEnabled(LogLevel.Debug))
         {
             if (_logger.IsEnabled(LogLevel.Trace))
             {
-                LogInvokedSensitive(nameof(GenerateImagesAsync), prompt, AsJson(options), AsJson(this.GetService<TextToImageClientMetadata>()));
+                LogInvokedSensitive(nameof(GenerateImagesAsync), AsJson(request), AsJson(options), AsJson(this.GetService<ImageClientMetadata>()));
             }
             else
             {
@@ -72,7 +73,7 @@ public partial class LoggingTextToImageClient : DelegatingTextToImageClient
 
         try
         {
-            var response = await base.GenerateImagesAsync(prompt, options, cancellationToken);
+            var response = await base.GenerateImagesAsync(request, options, cancellationToken);
 
             if (_logger.IsEnabled(LogLevel.Debug))
             {
@@ -101,48 +102,47 @@ public partial class LoggingTextToImageClient : DelegatingTextToImageClient
     }
 
     /// <inheritdoc/>
-    public override async Task<TextToImageResponse> EditImagesAsync(
-        IEnumerable<AIContent> originalImages, string prompt, TextToImageOptions? options = null, CancellationToken cancellationToken = default)
+    public override async IAsyncEnumerable<ImageResponseUpdate> GenerateImagesStreamingAsync(
+        ImageRequest request, 
+        ImageOptions? options = null, 
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         if (_logger.IsEnabled(LogLevel.Debug))
         {
             if (_logger.IsEnabled(LogLevel.Trace))
             {
-                LogInvokedSensitive(nameof(EditImagesAsync), prompt, AsJson(options), AsJson(this.GetService<TextToImageClientMetadata>()));
+                LogInvokedSensitive(nameof(GenerateImagesStreamingAsync), AsJson(request), AsJson(options), AsJson(this.GetService<ImageClientMetadata>()));
             }
             else
             {
-                LogInvoked(nameof(EditImagesAsync));
+                LogInvoked(nameof(GenerateImagesStreamingAsync));
             }
         }
 
+        IAsyncEnumerable<ImageResponseUpdate> enumerable;
         try
         {
-            var response = await base.EditImagesAsync(originalImages, prompt, options, cancellationToken);
+            enumerable = base.GenerateImagesStreamingAsync(request, options, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            LogInvocationFailed(nameof(GenerateImagesStreamingAsync), ex);
+            throw;
+        }
 
-            if (_logger.IsEnabled(LogLevel.Debug))
+        await foreach (var update in enumerable.WithCancellation(cancellationToken).ConfigureAwait(false))
+        {
+            if (_logger.IsEnabled(LogLevel.Trace))
             {
-                if (_logger.IsEnabled(LogLevel.Trace) && response.Contents.All(c => c is not DataContent))
-                {
-                    LogCompletedSensitive(nameof(EditImagesAsync), AsJson(response));
-                }
-                else
-                {
-                    LogCompleted(nameof(EditImagesAsync));
-                }
+                LogStreamingUpdateSensitive(nameof(GenerateImagesStreamingAsync), AsJson(update));
             }
 
-            return response;
+            yield return update;
         }
-        catch (OperationCanceledException)
+
+        if (_logger.IsEnabled(LogLevel.Debug))
         {
-            LogInvocationCanceled(nameof(EditImagesAsync));
-            throw;
-        }
-        catch (Exception ex)
-        {
-            LogInvocationFailed(nameof(EditImagesAsync), ex);
-            throw;
+            LogCompleted(nameof(GenerateImagesStreamingAsync));
         }
     }
 
@@ -151,14 +151,17 @@ public partial class LoggingTextToImageClient : DelegatingTextToImageClient
     [LoggerMessage(LogLevel.Debug, "{MethodName} invoked.")]
     private partial void LogInvoked(string methodName);
 
-    [LoggerMessage(LogLevel.Trace, "{MethodName} invoked: Prompt: {Prompt}. Options: {TextToImageOptions}. Metadata: {TextToImageClientMetadata}.")]
-    private partial void LogInvokedSensitive(string methodName, string prompt, string textToImageOptions, string textToImageClientMetadata);
+    [LoggerMessage(LogLevel.Trace, "{MethodName} invoked: Request: {ImageRequest}. Options: {ImageOptions}. Metadata: {ImageClientMetadata}.")]
+    private partial void LogInvokedSensitive(string methodName, string imageRequest, string imageOptions, string imageClientMetadata);
 
     [LoggerMessage(LogLevel.Debug, "{MethodName} completed.")]
     private partial void LogCompleted(string methodName);
 
-    [LoggerMessage(LogLevel.Trace, "{MethodName} completed: {TextToImageResponse}.")]
-    private partial void LogCompletedSensitive(string methodName, string textToImageResponse);
+    [LoggerMessage(LogLevel.Trace, "{MethodName} completed: {ImageResponse}.")]
+    private partial void LogCompletedSensitive(string methodName, string imageResponse);
+
+    [LoggerMessage(LogLevel.Trace, "{MethodName} streaming update: {ImageResponseUpdate}.")]
+    private partial void LogStreamingUpdateSensitive(string methodName, string imageResponseUpdate);
 
     [LoggerMessage(LogLevel.Debug, "{MethodName} canceled.")]
     private partial void LogInvocationCanceled(string methodName);

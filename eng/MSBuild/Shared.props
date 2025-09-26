@@ -7,6 +7,10 @@
     <Compile Include="$(MSBuildThisFileDirectory)\..\..\src\Shared\Throw\*.cs" LinkBase="Shared\Throw" />
   </ItemGroup>
 
+  <ItemGroup Condition="'$(InjectSharedCollectionExtensions)' == 'true'">
+    <Compile Include="$(MSBuildThisFileDirectory)\..\..\src\Shared\CollectionExtensions\*.cs" LinkBase="Shared\CollectionExtensions" />
+  </ItemGroup>
+
   <ItemGroup Condition="'$(InjectSharedEmptyCollections)' == 'true'">
     <Compile Include="$(MSBuildThisFileDirectory)\..\..\src\Shared\EmptyCollections\*.cs" LinkBase="Shared\EmptyCollections" />
   </ItemGroup>

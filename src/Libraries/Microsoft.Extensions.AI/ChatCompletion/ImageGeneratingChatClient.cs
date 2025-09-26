@@ -9,6 +9,7 @@ using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Shared.Collections;
 using Microsoft.Shared.Diagnostics;
 
 namespace Microsoft.Extensions.AI;
@@ -173,49 +174,29 @@ public sealed class ImageGeneratingChatClient : DelegatingChatClient
     /// <param name="contents">The list of AI content to process.</param>
     private IList<AIContent> ReplaceImageGenerationFunctionResults(IList<AIContent> contents)
     {
-        IList<AIContent>? newContents = null;
+        var replacer = new ListReplacer<AIContent>(contents);
 
-#pragma warning disable S127
-#pragma warning disable S125
-        // Replace FunctionResultContent instances with generated image content
-        for (int i = contents.Count - 1; i >= 0; i--)
+        while (replacer.HasMore)
         {
-            var content = contents[i];
+            var content = replacer.Current;
 
-            if (content is FunctionCallContent functionCall &&
-                _functionNames.Contains(functionCall.Name))
+            if (content is FunctionCallContent functionCall && _functionNames.Contains(functionCall.Name))
             {
-                EnsureNewContents();
-                contents.RemoveAt(i--);
+                _ = replacer.Skip(); // Remove function call
             }
-
-            if (content is FunctionResultContent functionResult &&
-                _imageContentByCallId.TryGetValue(functionResult.CallId, out var imageContents))
+            else if (content is FunctionResultContent functionResult &&
+                     _imageContentByCallId.TryGetValue(functionResult.CallId, out var imageContents))
             {
-                // Remove the function result
-                EnsureNewContents();
-                contents.RemoveAt(i);
-
-                // Insert generated image content in its place
-                for (int j = imageContents.Count - 1; j >= 0; j--)
-                {
-                    contents.Insert(i, imageContents[j]);
-                }
-
                 _ = _imageContentByCallId.Remove(functionResult.CallId);
+                replacer.Replace(imageContents);
             }
-        }
-
-        return contents;
-
-        void EnsureNewContents()
-        {
-            if (newContents is null)
+            else
             {
-                newContents = [.. contents];
-                contents = newContents;
+                _ = replacer.Keep(); // Keep the item as-is
             }
         }
+
+        return replacer.GetResult();
     }
 #pragma warning disable EA0014
     [Description("Generates images based on a text description")]

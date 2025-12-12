@@ -22,14 +22,24 @@ public class HostedMcpServerTool : AITool
     /// </summary>
     /// <param name="serverName">The name of the remote MCP server.</param>
     /// <param name="serverAddress">The address of the remote MCP server. This may be a URL, or in the case of a service providing built-in MCP servers with known names, it can be such a name.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="serverName"/> or <paramref name="serverAddress"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentException"><paramref name="serverName"/> or <paramref name="serverAddress"/> is empty or composed entirely of whitespace.</exception>
+    public HostedMcpServerTool(string serverName, string serverAddress)
+        : this(serverName, serverAddress, null)
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="HostedMcpServerTool"/> class.
+    /// </summary>
+    /// <param name="serverName">The name of the remote MCP server.</param>
+    /// <param name="serverAddress">The address of the remote MCP server. This may be a URL, or in the case of a service providing built-in MCP servers with known names, it can be such a name.</param>
     /// <param name="headers">HTTP headers to include when calling the remote MCP server. If <see langword="null"/>, an empty dictionary is created.</param>
     /// <exception cref="ArgumentNullException"><paramref name="serverName"/> or <paramref name="serverAddress"/> is <see langword="null"/>.</exception>
     /// <exception cref="ArgumentException"><paramref name="serverName"/> or <paramref name="serverAddress"/> is empty or composed entirely of whitespace.</exception>
-    public HostedMcpServerTool(string serverName, string serverAddress, IDictionary<string, string>? headers = null)
+    public HostedMcpServerTool(string serverName, string serverAddress, IDictionary<string, string>? headers)
+        : this(serverName, serverAddress, headers, null)
     {
-        ServerName = Throw.IfNullOrWhitespace(serverName);
-        ServerAddress = Throw.IfNullOrWhitespace(serverAddress);
-        Headers = headers ?? new Dictionary<string, string>();
     }
 
     /// <summary>
@@ -42,9 +52,24 @@ public class HostedMcpServerTool : AITool
     /// <exception cref="ArgumentNullException"><paramref name="serverName"/> or <paramref name="serverAddress"/> is <see langword="null"/>.</exception>
     /// <exception cref="ArgumentException"><paramref name="serverName"/> or <paramref name="serverAddress"/> is empty or composed entirely of whitespace.</exception>
     public HostedMcpServerTool(string serverName, string serverAddress, IDictionary<string, string>? headers, IReadOnlyDictionary<string, object?>? additionalProperties)
-        : this(serverName, serverAddress, headers)
     {
+        ServerName = Throw.IfNullOrWhitespace(serverName);
+        ServerAddress = Throw.IfNullOrWhitespace(serverAddress);
+        Headers = headers ?? new Dictionary<string, string>();
         _additionalProperties = additionalProperties;
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="HostedMcpServerTool"/> class.
+    /// </summary>
+    /// <param name="serverName">The name of the remote MCP server.</param>
+    /// <param name="serverUrl">The URL of the remote MCP server.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="serverName"/> or <paramref name="serverUrl"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentException"><paramref name="serverName"/> is empty or composed entirely of whitespace.</exception>
+    /// <exception cref="ArgumentException"><paramref name="serverUrl"/> is not an absolute URL.</exception>
+    public HostedMcpServerTool(string serverName, Uri serverUrl)
+        : this(serverName, ValidateUrl(serverUrl), null)
+    {
     }
 
     /// <summary>
@@ -56,7 +81,7 @@ public class HostedMcpServerTool : AITool
     /// <exception cref="ArgumentNullException"><paramref name="serverName"/> or <paramref name="serverUrl"/> is <see langword="null"/>.</exception>
     /// <exception cref="ArgumentException"><paramref name="serverName"/> is empty or composed entirely of whitespace.</exception>
     /// <exception cref="ArgumentException"><paramref name="serverUrl"/> is not an absolute URL.</exception>
-    public HostedMcpServerTool(string serverName, Uri serverUrl, IDictionary<string, string>? headers = null)
+    public HostedMcpServerTool(string serverName, Uri serverUrl, IDictionary<string, string>? headers)
         : this(serverName, ValidateUrl(serverUrl), headers)
     {
     }
@@ -72,9 +97,8 @@ public class HostedMcpServerTool : AITool
     /// <exception cref="ArgumentException"><paramref name="serverName"/> is empty or composed entirely of whitespace.</exception>
     /// <exception cref="ArgumentException"><paramref name="serverUrl"/> is not an absolute URL.</exception>
     public HostedMcpServerTool(string serverName, Uri serverUrl, IDictionary<string, string>? headers, IReadOnlyDictionary<string, object?>? additionalProperties)
-        : this(serverName, ValidateUrl(serverUrl), headers)
+        : this(serverName, ValidateUrl(serverUrl), headers, additionalProperties)
     {
-        _additionalProperties = additionalProperties;
     }
 
     private static string ValidateUrl(Uri serverUrl)
